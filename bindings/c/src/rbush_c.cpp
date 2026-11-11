@@ -246,4 +246,186 @@ rbush_status rbush_from_json(rbush_tree *tree, const rbush_node *nodes, size_t n
         tree->identities = std::move(imported.identities);
     });
 }
+rbush_status rbush_root_bounds(const rbush_tree *tree, rbush_box *bounds, int32_t *empty) {
+    return guard([&] {
+        require(tree && bounds && empty, "tree and root outputs are required");
+        const auto &root = tree->tree.data;
+        *bounds = {root->minX, root->minY, root->maxX, root->maxY};
+        *empty = root->children.empty() ? 1 : 0;
+    });
+}
+rbush_status rbush_clone(const rbush_tree *tree, rbush_tree **output) {
+    return guard([&] {
+        require(tree && output, "tree and clone output are required"); *output = nullptr;
+        auto copy = std::make_unique<rbush_tree>(tree->tree.maxEntries());
+        // C ABI items are canonical by identity. The final weak map itself is
+        // the duplicate cache; cloned nodes keep every copied item alive.
+        // Reserve once to avoid rehashing and a second N-entry ownership map.
+        copy->identities.reserve(tree->identities.size());
+        std::unordered_map<const Tree::Node *, Tree::NodePtr> copiedNodes;
+        std::function<Tree::NodePtr(const Tree::NodePtr &)> duplicate = [&](const Tree::NodePtr &source) {
+            auto existing = copiedNodes.find(source.get());
+            if (existing != copiedNodes.end()) return existing->second;
+            auto node = std::make_shared<Tree::Node>();
+            static_cast<rbush::Box &>(*node) = static_cast<const rbush::Box &>(*source);
+            node->height = source->height; node->leaf = source->leaf;
+            copiedNodes.emplace(source.get(), node);
+            node->children.reserve(source->children.size());
+            for (const auto &child : source->children) {
+                if (source->leaf) {
+                    const auto &original = std::get<Tree::ItemPtr>(child);
+                    auto &cached = copy->identities[original->id];
+                    auto value = cached.lock();
+                    if (!value) {
+                        value = std::make_shared<rbush::Item>(*original);
+                        cached = value;
+                    }
+                    node->children.emplace_back(std::move(value));
+                } else node->children.emplace_back(duplicate(std::get<Tree::NodePtr>(child)));
+            }
+            return node;
+        };
+        copy->tree.fromJSON(duplicate(tree->tree.data));
+        copy->tree.compareX = tree->tree.compareX; copy->tree.compareY = tree->tree.compareY;
+        copy->tree.compareContext = tree->tree.compareContext;
+        *output = copy.release();
+    });
+}
+rbush_status rbush_any(const rbush_tree *tree, rbush_box bounds, rbush_predicate_fn predicate,
+                      void *context, int32_t *found, size_t *node_visits, size_t *item_tests) {
+    return guard([&] {
+        require(tree && predicate && found, "tree, predicate and found output are required");
+        *found = 0; size_t visits = 0, tests = 0;
+        const auto query = box(bounds);
+        std::vector<Tree::NodePtr> pending;
+        if (rbush::detail::intersects(query, *tree->tree.data)) pending.push_back(tree->tree.data);
+        while (!pending.empty() && !*found) {
+            const auto node = pending.back(); pending.pop_back(); ++visits;
+            if (node->leaf) {
+                for (const auto &child : node->children) {
+                    const auto &candidate = std::get<Tree::ItemPtr>(child); ++tests;
+                    if (rbush::detail::intersects(query, *candidate) && predicate(candidate->id, context)) {
+                        *found = 1; break;
+                    }
+                }
+            } else {
+                for (const auto &child : node->children) {
+                    const auto &next = std::get<Tree::NodePtr>(child);
+                    if (rbush::detail::intersects(query, *next)) pending.push_back(next);
+                }
+            }
+        }
+        if (node_visits) *node_visits = visits;
+        if (item_tests) *item_tests = tests;
+    });
+}
+rbush_status rbush_regions(const rbush_tree *tree, size_t max_regions, size_t max_visits,
+                          double min_ratio, rbush_box *output, size_t capacity, size_t *count, size_t *node_visits) {
+    return rbush_regions_ex(tree, max_regions, max_visits, min_ratio, output, capacity, count, node_visits, nullptr);
+}
+rbush_status rbush_regions_ex(const rbush_tree *tree, size_t max_regions, size_t max_visits,
+                             double min_ratio, rbush_box *output, size_t capacity, size_t *count,
+                             size_t *node_visits, size_t *entry_reads) {
+    return guard([&] {
+        require(tree && count, "tree and region count are required");
+        require(std::isfinite(min_ratio) && min_ratio >= 0, "min_span_ratio must be finite and nonnegative");
+        *count = 0; if (node_visits) *node_visits = 0; if (entry_reads) *entry_reads = 0;
+        if (!max_regions || !max_visits || tree->tree.data->children.empty()) return;
+        struct Region {
+            Tree::NodePtr node;
+            rbush_box bounds;
+            size_t children;
+            double extent;
+            bool leaf;
+        };
+        const auto extent = [](const rbush_box &bounds) {
+            return std::max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y);
+        };
+        const auto nodeRegion = [&](const Tree::NodePtr &node) {
+            const rbush_box bounds{node->minX, node->minY, node->maxX, node->maxY};
+            return Region{node, bounds, node->children.size(), extent(bounds), node->leaf};
+        };
+        // Node visits and leaf-entry reads have separate equal budgets. A leaf
+        // box may bridge clouds, but even a very large leaf cannot trigger an
+        // unbounded scan. The temporary frontier is bounded by twice the budget.
+        std::vector<Region> frontier{nodeRegion(tree->tree.data)};
+        size_t visits = 1, itemReads = 0;
+        const double threshold = frontier.front().extent * min_ratio;
+        while (true) {
+            size_t selected = frontier.size(); double largest = -1;
+            for (size_t i = 0; i < frontier.size(); ++i) {
+                const auto &entry = frontier[i];
+                if (!entry.node || entry.children == 0) continue;
+                const size_t remaining = entry.leaf ? max_visits - itemReads : max_visits - visits;
+                if (entry.children > remaining) continue;
+                if (entry.extent > threshold && entry.extent > largest) { selected = i; largest = entry.extent; }
+            }
+            if (selected == frontier.size()) break;
+            const auto node = frontier[selected].node;
+            std::vector<Region> children; children.reserve(node->children.size());
+            for (const auto &child : node->children) {
+                if (node->leaf) {
+                    const auto &value = std::get<Tree::ItemPtr>(child);
+                    const rbush_box bounds{value->minX, value->minY, value->maxX, value->maxY};
+                    children.push_back({nullptr, bounds, 0, extent(bounds), false});
+                } else children.push_back(nodeRegion(std::get<Tree::NodePtr>(child)));
+            }
+            if (node->leaf) itemReads += children.size();
+            else visits += children.size();
+            frontier.erase(frontier.begin() + static_cast<std::ptrdiff_t>(selected));
+            frontier.insert(frontier.begin() + static_cast<std::ptrdiff_t>(selected), children.begin(), children.end());
+        }
+        // Refinement is limited by reads, not by the final drawing budget.
+        // Otherwise a wide bridge could never expand when it has many children.
+        std::vector<rbush_box> regions; regions.reserve(frontier.size());
+        for (const auto &entry : frontier) regions.push_back(entry.bounds);
+        const auto unite = [](const rbush_box &a, const rbush_box &b) {
+            return rbush_box{std::min(a.min_x, b.min_x), std::min(a.min_y, b.min_y),
+                             std::max(a.max_x, b.max_x), std::max(a.max_y, b.max_y)};
+        };
+        const auto merge = [&](size_t a, size_t b) {
+            regions[a] = unite(regions[a], regions[b]);
+            regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(b));
+        };
+        // Coalesce only within one root-relative granularity box. This avoids
+        // transitive chains that could join two distant clouds across a gap.
+        bool coalesced = true;
+        while (coalesced) {
+            coalesced = false;
+            for (size_t i = 0; i < regions.size() && !coalesced; ++i) {
+                for (size_t j = i + 1; j < regions.size(); ++j) {
+                    if (extent(unite(regions[i], regions[j])) <= threshold) {
+                        merge(i, j); coalesced = true; break;
+                    }
+                }
+            }
+        }
+        const auto area = [](const rbush_box &bounds) {
+            return (bounds.max_x - bounds.min_x) * (bounds.max_y - bounds.min_y);
+        };
+        while (regions.size() > max_regions) {
+            size_t first = 0, second = 1;
+            double closest = std::numeric_limits<double>::infinity();
+            double smallestGrowth = std::numeric_limits<double>::infinity();
+            for (size_t i = 0; i < regions.size(); ++i) {
+                for (size_t j = i + 1; j < regions.size(); ++j) {
+                    const auto &a = regions[i]; const auto &b = regions[j];
+                    const double dx = std::max(0.0, std::max(a.min_x, b.min_x) - std::min(a.max_x, b.max_x));
+                    const double dy = std::max(0.0, std::max(a.min_y, b.min_y) - std::min(a.max_y, b.max_y));
+                    const double distance = dx * dx + dy * dy;
+                    const double growth = area(unite(a, b)) - area(a) - area(b);
+                    if (distance < closest || (distance == closest && growth < smallestGrowth)) {
+                        first = i; second = j; closest = distance; smallestGrowth = growth;
+                    }
+                }
+            }
+            merge(first, second);
+        }
+        *count = regions.size(); if (node_visits) *node_visits = visits; if (entry_reads) *entry_reads = itemReads;
+        if (capacity < regions.size()) throw SmallBuffer("region buffer too small");
+        require(output, "region buffer is required");
+        std::copy(regions.begin(), regions.end(), output);
+    });
+}
+
 }

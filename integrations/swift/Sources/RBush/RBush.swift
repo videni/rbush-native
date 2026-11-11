@@ -1,6 +1,6 @@
 import CRBush
 
-public struct BoundingBox: Equatable, Codable {
+public struct BoundingBox: Equatable, Codable, Sendable {
     public var minX, minY, maxX, maxY: Double
     public init(minX: Double, minY: Double, maxX: Double, maxY: Double) {
         self.minX = minX; self.minY = minY; self.maxX = maxX; self.maxY = maxY
@@ -21,7 +21,7 @@ public final class RBushItem<Payload> {
 
 public struct RBushError: Error, CustomStringConvertible {
     public let description: String
-    fileprivate init(_ description: String) { self.description = description }
+    init(_ description: String) { self.description = description }
 }
 
 private func check(_ status: rbush_status) throws {

@@ -6,7 +6,7 @@ This is an independent, faithful, function-by-function C++17 port of [RBush](htt
 
 ## 移植范围
 
-以固定上游版本为算法基线，保留 `all/search/collides/load/insert/remove/clear/toJSON/fromJSON`、OMT/STLT、split/condense、默认容量 9、quickselect/Floyd–Rivest、引用身份与重复项行为。C ABI、Swift 和 WebAssembly 使用同一个 C++ 内核。首版不加入 COW、并发快照、其他索引或替代算法。
+以固定上游版本为算法基线，保留 `all/search/collides/load/insert/remove/clear/toJSON/fromJSON`、OMT/STLT、split/condense、默认容量 9、quickselect/Floyd–Rivest、引用身份与重复项行为。C ABI、Swift 和 WebAssembly 使用同一个 C++ 内核。原始 C++ 核心不加入其他索引或替代算法。Swift 集成另提供值语义 `RBushSpatialIndex<Key>`：共享只读版本，首次修改原生克隆；这是适配层能力，不改变原版树算法。
 
 仓库只跟踪本项目的原生实现、包装层和适配后的测试、bench、浏览器 demo。原版 JavaScript、测试、bench 和 viz 由工具按固定 commit 获取到**仓库外的缓存**，作为差分验证输入，不在这里重复存放。来源、版本和许可证见 [UPSTREAM](docs/UPSTREAM.md)。Swift 是其中一个集成层，源码与测试位于 `integrations/swift`。根目录 `Package.swift` 仅作为标准 SwiftPM 的 Git URL 发现入口，直接编译同一份 C++ 核心，不另存一份核心或组织全仓库。
 
@@ -119,3 +119,12 @@ node "$RBUSH_REPO/scripts/parity-bench.mjs"
 原版JS、C++和WASM已经按固定版本做功能/树形差分；Swift也提供 `toBBox`、`compareMinX/Y` 自定义closure与reset接口，使用现有C hooks，不另写算法。语言模型差异仍以本文说明为准，不声称所有语言层完全等价。
 
 [同一画布数据的性能报告](docs/PERFORMANCE.md) 使用前面相同的16份数据/查询，分别运行原版JS和本次C++，不是另换随机workload。结果包含全部384个条件及输入SHA；并非iPad App端到端性能。
+
+
+## Swift 值语义空间索引
+
+`RBushSpatialIndex<Key: Hashable>` 供需要稳定 key、批量 upsert、独立快照的调用方使用。原版 `RBush` 引用 API 保持不变。值接口不暴露可变 item，首次写入共享版本时复制原生节点和几何；不是 O(1) 写入。
+
+提供 O(1) root bounds、真实 predicate 提前停止和 bounded regions。罗盘摘要最多读取指定数量的 node boxes 与相同上限的 leaf-entry boxes，再合并压缩到输出上限；不会为一次摘要导出整棵树。所有新能力位于薄 C ABI 与 Swift 集成，核心源码哈希不变。
+
+[项目集成验收与成本](docs/integration/spatial-value-index.md) 分别记录快照首次写、稳定写、root 读取与正确聚集摘要的成本。

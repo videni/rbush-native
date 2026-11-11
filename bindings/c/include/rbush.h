@@ -67,6 +67,30 @@ rbush_status rbush_to_json(const rbush_tree *tree,
 rbush_status rbush_from_json(rbush_tree *tree,
     const rbush_node *nodes, size_t node_count, const rbush_item *items, size_t item_count,
     const uint64_t *child_indices, size_t child_count);
+/* Integration helpers: separate from original RBush operations. Root bounds
+   are O(1); out_empty distinguishes the empty infinite sentinel. Clone is O(N),
+   duplicates keep identity but nodes and mutable item geometry are independent.
+   Comparator pointers/context are copied without taking context ownership. */
+rbush_status rbush_root_bounds(const rbush_tree *tree, rbush_box *out_bounds, int32_t *out_empty);
+rbush_status rbush_clone(const rbush_tree *tree, rbush_tree **out_tree);
+/* Predicate is synchronous and unretained. Nonzero stops immediately. Optional
+   counters report actual visited nodes and tested item boxes, not result count. */
+typedef int (*rbush_predicate_fn)(uint64_t identity, void *context);
+rbush_status rbush_any(const rbush_tree *tree, rbush_box bounds, rbush_predicate_fn predicate,
+    void *context, int32_t *out_found, size_t *out_node_visits, size_t *out_item_tests);
+/* Coarse summary covers all entries when budgets are positive. Node visits and
+   leaf-entry geometry reads are each <=max_node_visits (temporary frontier
+   <=2*max_node_visits). No full export or unbounded item scan. Refinement precedes
+   local coalescing and final closest-pair compression, independently bounding
+   output<=max_regions. out_node_visits counts nodes, not leaf-entry reads.
+   The extended form additionally reports the separately budgeted entry reads.
+   Zero budgets produce no regions. */
+rbush_status rbush_regions(const rbush_tree *tree, size_t max_regions, size_t max_node_visits,
+    double min_span_ratio, rbush_box *regions, size_t capacity, size_t *out_count, size_t *out_node_visits);
+rbush_status rbush_regions_ex(const rbush_tree *tree, size_t max_regions, size_t max_node_visits,
+    double min_span_ratio, rbush_box *regions, size_t capacity, size_t *out_count,
+    size_t *out_node_visits, size_t *out_entry_reads);
+
 /* Thread-local diagnostic for most recent failed call; copied/owned by library.
    Calls on a handle require external synchronization. No C++ exception crosses ABI. */
 const char *rbush_last_error(void);
