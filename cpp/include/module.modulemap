@@ -1,0 +1,4 @@
+module CRBush {
+    header "rbush.h"
+    export *
+}

@@ -1,0 +1,12 @@
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const read=path=>readFile(new URL(path,import.meta.url),'utf8');
+const js=await read('../index.js'), cpp=await read('../cpp/include/rbush.hpp');
+const methods=[...js.matchAll(/^    ([A-Za-z_]\w*)\([^\n]*\) \{/gm)].map(m=>m[1]).filter(n=>n!=='constructor');
+const helpers=[...js.matchAll(/^function ([A-Za-z_]\w*)\(/gm)].map(m=>m[1]);
+for(const name of [...methods,...helpers]) assert.match(cpp,new RegExp(`\\b${name}\\s*\\(`),`missing upstream function ${name}`);
+const quick=await read('../cpp/include/quickselect.hpp');
+assert.match(quick,/600/,'Floyd–Rivest large partition threshold');
+assert.match(quick,/0\.5/,'Floyd–Rivest sample correction');
+assert.doesNotMatch(cpp+quick,/std::nth_element\s*\(/,'cannot substitute quickselect');
+console.log(`source correspondence: ${methods.length} methods + ${helpers.length} helpers, Floyd–Rivest retained (presence gate; manual algorithm review still required)`);

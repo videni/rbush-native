@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RBush Tree Visualization · C++ / WASM</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:20px;color:#222;background:#fff}h1{font-size:23px;font-weight:600;margin:0 0 8px}h2{font-size:18px;margin:26px 0 8px}p{max-width:72ch;margin:8px 0}main{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}canvas{display:block;width:min(701px,100%);height:auto;border:1px solid #ddd;touch-action:none}section{max-width:720px}aside{width:530px;max-width:100%}button,select{font:inherit;margin:3px 4px 3px 0;padding:4px 8px}button:enabled:hover{background:#e8e8e8}button:disabled{color:#777}button:focus-visible,select:focus-visible,summary:focus-visible,canvas:focus-visible{outline:2px solid #175bb0;outline-offset:2px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}th,td{text-align:left;border-bottom:1px solid #ddd;padding:5px}td:nth-child(3){text-align:right;white-space:nowrap}th{font-weight:600}#status,#test-status{min-height:24px}.pass{color:#176b22}.fail{color:#b02626}ol{padding-left:24px;font-size:13px}details{margin:10px 0}#error{color:#b02626;white-space:pre-wrap}::selection{background:#d7e8ff}a{color:#175bb0;text-underline-offset:3px}
+</style>
+<script type="importmap">{"imports":{"quickselect":"../node_modules/quickselect/index.js"}}</script>
+<h1>RBush Tree Visualization</h1>
+<p>The original uniform / cluster canvas, using the pinned JavaScript tree or the same C++17 core compiled to WebAssembly.</p>
+<p id="loading" role="status">Loading C++ WebAssembly…</p><pre id="error" role="alert"></pre>
+<main>
+<section aria-label="Tree visualization">
+<div>
+<label>Engine <select id="engine"><option value="wasm">C++ / native WASM</option><option value="js">Original JavaScript</option></select></label>
+<label>Dataset <select id="distribution"><option value="uniform">Uniform</option><option value="cluster">Cluster</option></select></label>
+<label>Items <select id="count"><option>5000</option><option>10000</option><option>50000</option><option selected>100000</option></select></label>
+<button id="reset" disabled>Reset</button>
+</div>
+<canvas id="canvas" width="701" height="701" tabindex="0" aria-label="R-tree node bounds. Drag to search; click for a one-pixel search."></canvas>
+<div id="controls">
+<button data-insert="50000" disabled>Insert 50000</button><button data-insert="1000" disabled>Insert 1000</button>
+<button data-bulk="50000" disabled>Bulk-insert 50000</button><button data-bulk="1000" disabled>Bulk-insert 1000</button>
+<button id="remove" disabled>Remove leftmost 10000</button>
+</div>
+<p id="status" role="status"></p>
+<p>Node bounds use the original gray / red / green / blue depth colors. Click for a one-pixel search or drag to highlight a rectangle. Coordinates follow the canvas.</p>
+</section>
+<aside>
+<h2>Original tests</h2>
+<p>All 26 cases are loaded from the untouched upstream test file. Only its imports are adapted for the browser.</p>
+<button id="tests" disabled>Run original tests · both engines</button>
+<p id="test-status" role="status"></p>
+<details><summary>Test results</summary><ol id="test-results"></ol></details>
+<h2>Original benchmark sequence</h2>
+<p>Both engines receive the same seeded inputs and query boxes. Times include each API bridge; counts check matching searches. This runs the operations from upstream <code>bench/perf.js</code> at the selected item count, followed by a bulk-load sample.</p>
+<button id="bench" disabled>Run perf sequence · both engines</button><button id="microbench" disabled>Run original microbench cases</button><span id="bench-status" role="status"></span>
+<table><thead><tr><th>Engine</th><th>Operation</th><th>Time</th><th>Hits</th></tr></thead><tbody id="bench-results"></tbody></table>
+<p><a href="../test/test.js">Upstream tests</a> · <a href="../bench/perf.js">Upstream benchmark</a> · <a href="../viz/viz.js">Upstream canvas</a></p>
+</aside>
+</main>
+<script type="module" src="./app.mjs"></script>
+</html>

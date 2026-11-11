@@ -1,0 +1,40 @@
+name: Native port
+on: [push, pull_request]
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    env:
+      RBUSH_PARITY_CLI: ${{ github.workspace }}/build-native/rbush_parity_cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: scripts/test-native.sh
+      - run: node scripts/parity-upstream.mjs native
+      - run: node scripts/parity-sequences.mjs native
+      - run: node scripts/parity-datasets.mjs native
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --jobs 3
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Install pinned Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git .tools/emsdk
+          .tools/emsdk/emsdk install 4.0.20
+          .tools/emsdk/emsdk activate 4.0.20
+      - run: scripts/wasm-build.sh
+      - run: node scripts/parity-upstream.mjs wasm
+      - run: node scripts/parity-sequences.mjs wasm
+      - run: node scripts/parity-datasets.mjs wasm
+      - run: node --expose-gc scripts/parity-adapter-regressions.mjs
