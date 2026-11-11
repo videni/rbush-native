@@ -2,6 +2,6 @@
 /build*/
 /.build/
 /.swiftpm/
-/integrations/integrations/wasm/dist/
+/integrations/wasm/dist/
 /logs/
 .DS_Store
