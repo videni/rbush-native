@@ -6,7 +6,7 @@
 <style>
 body{font:15px/1.5 system-ui,sans-serif;margin:20px;color:#222;background:#fff}h1{font-size:23px;font-weight:600;margin:0 0 8px}h2{font-size:18px;margin:26px 0 8px}p{max-width:72ch;margin:8px 0}main{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}canvas{display:block;width:min(701px,100%);height:auto;border:1px solid #ddd;touch-action:none}section{max-width:720px}aside{width:530px;max-width:100%}button,select{font:inherit;margin:3px 4px 3px 0;padding:4px 8px}button:enabled:hover{background:#e8e8e8}button:disabled{color:#777}button:focus-visible,select:focus-visible,summary:focus-visible,canvas:focus-visible{outline:2px solid #175bb0;outline-offset:2px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}th,td{text-align:left;border-bottom:1px solid #ddd;padding:5px}td:nth-child(3){text-align:right;white-space:nowrap}th{font-weight:600}#status,#test-status{min-height:24px}.pass{color:#176b22}.fail{color:#b02626}ol{padding-left:24px;font-size:13px}details{margin:10px 0}#error{color:#b02626;white-space:pre-wrap}::selection{background:#d7e8ff}a{color:#175bb0;text-underline-offset:3px}
 </style>
-<script type="importmap">{"imports":{"quickselect":"../node_modules/quickselect/index.js"}}</script>
+<script type="importmap">{"imports":{"quickselect":"/__reference/quickselect/index.js"}}</script>
 <h1>RBush Tree Visualization</h1>
 <p>The original uniform / cluster canvas, using the pinned JavaScript tree or the same C++17 core compiled to WebAssembly.</p>
 <p id="loading" role="status">Loading C++ WebAssembly…</p><pre id="error" role="alert"></pre>
@@ -37,7 +37,7 @@ body{font:15px/1.5 system-ui,sans-serif;margin:20px;color:#222;background:#fff}h
 <p>Both engines receive the same seeded inputs and query boxes. Times include each API bridge; counts check matching searches. This runs the operations from upstream <code>bench/perf.js</code> at the selected item count, followed by a bulk-load sample.</p>
 <button id="bench" disabled>Run perf sequence · both engines</button><button id="microbench" disabled>Run original microbench cases</button><span id="bench-status" role="status"></span>
 <table><thead><tr><th>Engine</th><th>Operation</th><th>Time</th><th>Hits</th></tr></thead><tbody id="bench-results"></tbody></table>
-<p><a href="../test/test.js">Upstream tests</a> · <a href="../bench/perf.js">Upstream benchmark</a> · <a href="../viz/viz.js">Upstream canvas</a></p>
+<p><a href="/__reference/rbush/test/test.js">Pinned upstream tests</a> · <a href="/__reference/rbush/bench/perf.js">Pinned upstream benchmark</a> · <a href="/__reference/rbush/viz/viz.js">Pinned upstream canvas</a></p>
 </aside>
 </main>
 <script type="module" src="./app.mjs"></script>

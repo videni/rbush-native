@@ -10,16 +10,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
-      - run: scripts/test-native.sh
-      - run: node scripts/parity-upstream.mjs native
-      - run: node scripts/parity-sequences.mjs native
-      - run: node scripts/parity-datasets.mjs native
+      - name: Fetch pinned references outside the repository
+        run: node "$GITHUB_WORKSPACE/scripts/fetch-upstream.mjs"
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-upstream.mjs" original
+      - run: bash "$GITHUB_WORKSPACE/scripts/test-native.sh"
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-source.mjs"
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-upstream.mjs" native
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-sequences.mjs" native
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-datasets.mjs" native
+  # The root manifest is a thin entry over integrations/swift and the shared core.
   swift:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: swift test --jobs 3
+      - run: swift test --package-path "$GITHUB_WORKSPACE" --jobs 3
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -27,14 +31,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts
-      - name: Install pinned Emscripten
+      - name: Fetch pinned references outside the repository
+        run: node "$GITHUB_WORKSPACE/scripts/fetch-upstream.mjs"
+      - name: Install pinned Emscripten outside the repository
         run: |
-          git clone --depth 1 https://github.com/emscripten-core/emsdk.git .tools/emsdk
-          .tools/emsdk/emsdk install 4.0.20
-          .tools/emsdk/emsdk activate 4.0.20
-      - run: scripts/wasm-build.sh
-      - run: node scripts/parity-upstream.mjs wasm
-      - run: node scripts/parity-sequences.mjs wasm
-      - run: node scripts/parity-datasets.mjs wasm
-      - run: node --expose-gc scripts/parity-adapter-regressions.mjs
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 4.0.20
+          "$RUNNER_TEMP/emsdk/emsdk" activate 4.0.20
+          echo "EMXX=$RUNNER_TEMP/emsdk/upstream/emscripten/em++" >> "$GITHUB_ENV"
+      - run: bash "$GITHUB_WORKSPACE/scripts/wasm-build.sh"
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-upstream.mjs" wasm
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-sequences.mjs" wasm
+      - run: node "$GITHUB_WORKSPACE/scripts/parity-datasets.mjs" wasm
+      - run: node --expose-gc "$GITHUB_WORKSPACE/scripts/parity-adapter-regressions.mjs"

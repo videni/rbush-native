@@ -1,5 +1,5 @@
 import {spawnSync} from 'node:child_process';
-import {createRBushClass} from '../../wasm/facade.mjs';
+import {createRBushClass} from '../integrations/wasm/facade.mjs';
 const bbox = b => `${b.minX} ${b.minY} ${b.maxX} ${b.maxY}`;
 const item = b => `${b.identity} ${bbox(b)}`;
 export default createRBushClass(max => {

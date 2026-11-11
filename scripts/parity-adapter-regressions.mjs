@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import Original from '../index.js';
-import Port from '../wasm/test-adapter.mjs';
+import {loadOriginalRBush} from './upstream.mjs';
+const Original = await loadOriginalRBush();
+import Port from '../integrations/wasm/test-adapter.mjs';
 
 for(const count of [4,5,9,10]) {
     const points=Array.from({length:count},(_,i)=>({minX:i,minY:i,maxX:i,maxY:i}));

@@ -1,7 +1,7 @@
 // Adapter bookkeeping is deliberately tested in its own translation unit so
 // the public C ABI needs no test-only introspection functions.
 #ifndef RBUSH_C_IMPLEMENTATION
-#define RBUSH_C_IMPLEMENTATION "../src/rbush_c.cpp"
+#define RBUSH_C_IMPLEMENTATION "../bindings/c/src/rbush_c.cpp"
 #endif
 #include RBUSH_C_IMPLEMENTATION
 #include <iostream>

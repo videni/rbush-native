@@ -1,12 +1,14 @@
 # Upstream provenance
 
-This repository is a fork of [mourner/rbush](https://github.com/mourner/rbush), originally authored by Volodymyr Agafonkin and contributors, licensed under MIT. The native translation is performed by OpenAI Codex at the project user's request. Original authorship and license remain intact.
+[videni/rbush-native](https://github.com/videni/rbush-native) is an independent repository containing a faithful C++17 translation of [mourner/rbush](https://github.com/mourner/rbush), originally authored by Volodymyr Agafonkin and contributors. **OpenAI Codex is responsible for this port**, as explicitly requested by the project user. This attribution does not replace original authorship or copyright.
 
-- RBush commit: `e59712716a84dda2e31f9b471b32faa178d8056f`.
-- RBush `index.js` git blob: `7a23e51ff45931420b95426c5b9f6f75e0cea2c0`.
-- quickselect commit: `0711310d28fe5f8a5ca75c721626d8e49feb9ccb`.
-- quickselect `index.js` git blob: `64b48249cfa80409c165b35dd80007e85104efc4`.
+| Reference | Pinned commit | Source blob |
+|---|---|---|
+| [RBush](https://github.com/mourner/rbush) | [`e59712716a84dda2e31f9b471b32faa178d8056f`](https://github.com/mourner/rbush/tree/e59712716a84dda2e31f9b471b32faa178d8056f) | `index.js`: `7a23e51ff45931420b95426c5b9f6f75e0cea2c0` |
+| [quickselect](https://github.com/mourner/quickselect) | [`0711310d28fe5f8a5ca75c721626d8e49feb9ccb`](https://github.com/mourner/quickselect/tree/0711310d28fe5f8a5ca75c721626d8e49feb9ccb) | `index.js`: `64b48249cfa80409c165b35dd80007e85104efc4` |
 
-Original RBush files stay at their original paths. `README.upstream.md` preserves its README; root README introduces the port. Native files retain upstream notices. quickselect licensing travels with its translation.
+RBush's MIT notice remains in [LICENSE](../LICENSE). quickselect's ISC notice remains in [LICENSE.quickselect](../LICENSE.quickselect) and travels with its translation. The original documentation is available in the [pinned upstream repository](https://github.com/mourner/rbush/blob/e59712716a84dda2e31f9b471b32faa178d8056f/README.md).
 
-Faithful means corresponding original operations, algorithms and behavior; it does not mean identical machine instructions, cross-language object models, or pre-proven performance. Language-only adaptations and verification results are documented explicitly.
+Original JavaScript source, tests, benchmark and visualization directories are not vendored here. `scripts/fetch-upstream.mjs` fetches pinned verification references into an external cache. `scripts/upstream.mjs` provides `ensureUpstream() → {rbushRoot, quickselectRoot}` and `loadOriginalRBush()` for differential tools. The default cache is `~/Library/Caches/rbush-native/upstream` on macOS and `${XDG_CACHE_HOME:-~/.cache}/rbush-native/upstream` on Linux. `RBUSH_UPSTREAM_CACHE` can select another location outside the repository. Each reference is checked for its exact pinned HEAD and clean tracked contents; repeated fetches reuse the cache. The helper manages the reference's quickselect resolution; installing npm dependencies in this repository is unnecessary. The local demo server maps these external roots under `/__reference/rbush/` and `/__reference/quickselect/`.
+
+The repository is organized around its C++17 core in `include`, with the C ABI in `bindings/c`, native validation in `tests` and `benchmarks`, optional integrations in `integrations/swift` and `integrations/wasm`, and the browser example in `examples/web`. The root SwiftPM manifest is only a standard Git-URL package entry; it compiles these shared sources directly and does not define a second core. The repository tracks the translated native core, C/Swift/WASM adapters and adapted validation/demo tooling. Faithful means corresponding operations, algorithms and behavior; it does not mean identical machine instructions, cross-language object models or pre-proven performance. Snapshot ownership and other language-only adaptations are documented in the [README](../README.md); actual validation scope is recorded in [VERIFICATION](VERIFICATION.md).

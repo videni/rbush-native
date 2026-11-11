@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import Original from '../index.js';
-import Wasm from '../wasm/test-adapter.mjs';
-import {benchmark,microbenchmarks} from '../wasm/benchmark.mjs';
+import {loadOriginalRBush} from './upstream.mjs';
+const Original = await loadOriginalRBush();
+import Wasm from '../integrations/wasm/test-adapter.mjs';
+import {benchmark,microbenchmarks} from '../benchmarks/benchmark.mjs';
 const executable=process.env.RBUSH_BENCH || './build-native/rbush_bench';
 function native(argument) {
     const result=spawnSync(executable,[String(argument)],{encoding:'utf8'});

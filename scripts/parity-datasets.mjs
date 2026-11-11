@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import Original from '../index.js';
-import {random,uniform,cluster} from '../wasm/datasets.mjs';
+import {loadOriginalRBush} from './upstream.mjs';
+const Original = await loadOriginalRBush();
+import {random,uniform,cluster} from '../benchmarks/datasets.mjs';
 const backend=process.argv[2] || 'wasm';
-const adapter=await import(backend==='wasm' ? '../wasm/test-adapter.mjs' : '../cpp/test/native-adapter.mjs');
+const adapter=await import(backend==='wasm' ? '../integrations/wasm/test-adapter.mjs' : '../tests/native-adapter.mjs');
 const Port=adapter.default;
 let heapBefore;
 if(backend==='wasm') {

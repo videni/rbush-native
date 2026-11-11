@@ -1,11 +1,28 @@
 # Browser tests, benchmarks and tree visualization
 
+This independent repository contains our C++ / Swift / WASM port and adapted
+tests, benchmarks and demo. Original RBush JavaScript, tests, benchmarks and
+visualization sources are verification inputs fetched into an **external cache**,
+not files vendored into this repository. The reference loader pins RBush to
+`e59712716a84dda2e31f9b471b32faa178d8056f` and quickselect to
+`0711310d28fe5f8a5ca75c721626d8e49feb9ccb`.
+
 Build `bash scripts/wasm-build.sh` from the repository root after installing and
-locally activating official Emscripten **4.0.20**, or set `EMXX` to your em++.
-No global shell configuration is required. `wasm/dist/` is generated output.
-Serve the repository root (for example `python3 -m http.server 8127`), then open
-`http://localhost:8127/wasm/`. Run `npm ci` first: the original JavaScript engine
-uses the pinned npm quickselect dependency through an import map.
+activating official Emscripten **4.0.20** outside the repository, or set `EMXX`
+to your em++. The build script also detects `em++` on PATH, `EMSDK`, or the
+external `$XDG_CACHE_HOME/rbush-native/emsdk` directory (default
+`~/Library/Caches/rbush-native/emsdk` on macOS, `~/.cache/rbush-native/emsdk`
+elsewhere). No global shell configuration is required. `integrations/wasm/dist/` contains
+only our generated build output.
+
+Run `python3 scripts/serve.py`, then open `http://127.0.0.1:8128/examples/web/`.
+The older `/wasm/` link redirects to this page.
+The server defaults to loopback; optional `--bind` and `--port` flags change
+the listening address. It ensures the pinned external references are available
+through `scripts/upstream.mjs`, then serves them at `/__reference/rbush/` and
+`/__reference/quickselect/`. The browser's import map resolves the original
+quickselect module through that reference route. No root npm install is needed.
+Override `RBUSH_UPSTREAM_CACHE` to select another external source-cache directory.
 
 The page preserves upstream's 701px canvas, uniform / 30-cluster generators,
 100k initial items, insert/bulk-insert sizes, leftmost removal, and node depth
@@ -13,9 +30,13 @@ colors. It also offers 5k / 10k / 50k datasets, search highlighting, both-engine
 tests, and benchmark output. It is a local library demo, not an application
 integration or published website.
 
-`wasm/bridge.cpp` only turns by-value structs into pointer parameters.
-`scripts/wasm-build.sh` compiles `cpp/src/rbush_c.cpp` and includes the same
-`cpp/include/rbush.hpp` and `quickselect.hpp` used by native/Swift. No JavaScript
+`integrations/wasm/bridge.cpp` only turns by-value structs into pointer parameters.
+`scripts/wasm-build.sh` compiles `bindings/c/src/rbush_c.cpp` and includes the same
+`include/rbush.hpp` and `include/quickselect.hpp` used by native/Swift. The C++
+headers are the primary library; this directory is an optional integration.
+The browser example lives under `examples/web/`, its portable JavaScript
+benchmark workloads under `benchmarks/`, and its assertion harness under
+`tests/browser/`. No JavaScript
 tree exists in WASM mode. JS owns original item objects, maps reference identity
 to a numeric C identity, copies inputs/results, and renders exported node bounds.
 Queries execute one native tree traversal. Heap views are reacquired after
@@ -43,14 +64,15 @@ requested after mutations, not on every frame or search.
 `RBUSH_PARITY_CLI` can point at a separately built `rbush_parity_cli`; the default
 is `build-native/rbush_parity_cli`. Its native adapter replays mutations in a fresh CLI
 process for each observation. It is a test transport and is not benchmarked.
-The original test file stays untouched. The test runner rewrites only its RBush
+The original test file stays untouched in the external pinned cache. The test runner rewrites only its RBush
 import. The browser additionally replaces Node's `test` and `assert` imports
 with a minimal synchronous harness supporting exactly the assertions it uses;
 the authoritative strict-assert runs remain the Node commands above.
 
 ## Benchmark adaptation
 
-`cpp/bench/perf.cpp` and the browser port `bench/perf.js`'s operation sequence,
+`benchmarks/perf.cpp` and `benchmarks/benchmark.mjs` port upstream
+`bench/perf.js`'s operation sequence,
 random-box formula, maxFill=16, and 1000 queries at each original box size.
 Native defaults to the original 1M items; pass 5000, 10000, 50000, or 100000
 for canvas-sized runs. Both ports replace Math.random with the same seed-42 LCG,
@@ -61,9 +83,9 @@ insert-100, bulk-load-10k, search-after-insert-10k, and search-after-bulk-load-1
 workloads from the four `.bench.js` files. Bulksearch retains its original
 size-100 boxes. These are single timed samples, not Benchmark.js ops/sec statistics.
 Native reports core timings; browser timings include the JS/C ABI bridge, and
-are not directly comparable to native core-only times. The original benchmark
-suite files are preserved, including their extensionless imports and array
-datasets; those old fixture-format issues are not silently edited upstream.
+are not directly comparable to native core-only times. Original benchmark
+suite files stay in the external cache, including their extensionless imports
+and array datasets; those old fixture-format issues are not silently edited.
 
 ## Language differences
 

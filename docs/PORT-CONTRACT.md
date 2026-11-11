@@ -1,20 +1,47 @@
-# Faithful port contract
+# Native port contract
 
-Approved user scope: C++17 one-to-one translation of RBush, including upstream tests/bench/viz; Swift package in same new repository; WASM builds the same core. README attribution requested explicitly. No algorithm redesign or product integration in this port phase.
+## Primary library
 
-Pinned RBush: e59712716a84dda2e31f9b471b32faa178d8056f. Pinned quickselect: 0711310d28fe5f8a5ca75c721626d8e49feb9ccb.
+This is an independent C++17 library, not a JavaScript fork distribution and not a Swift-first project. One faithful C++ RBush implementation is the algorithm authority.
 
-## Ownership
+- `include/`: public RBush and quickselect headers.
+- `tests/`: core/C ABI fixtures and native parity transport.
+- `benchmarks/`: native performance workloads and shared browser benchmark data/tools.
+- `bindings/c/`: thin shared C ABI.
+- `integrations/swift/`: Swift adapter source and tests.
+- `integrations/wasm/`: WASM build bindings and language adapter.
+- `examples/web/`: browser visualization, test and benchmark interface.
+- Root `Package.swift`: thin SwiftPM discovery entry reusing the same C++ source; Swift implementation is not a core component.
 
-- Core worker: cpp/include/rbush.hpp and cpp/include/quickselect.hpp. Preserve constructor min/max entries, insert/remove/clear/all/search/collides/load, toBBox/compare customization, toJSON/fromJSON structure, split/condense/OMT/STLT, reference/equality removal. Publish concrete public interface to adapter worker early.
-- Adapter worker: cpp/include/rbush.h, cpp/src/rbush_c.cpp, Package.swift, Sources/RBush/, Tests/RBushTests/. C ABI must expose batch buffers and node export/import enough to preserve tree structure. Do not hide algorithm changes in adapter.
-- Parity/WASM worker: cpp/test/, cpp/bench/, wasm/, scripts/parity*, scripts/wasm*, new browser demo assets. Use original test names/data and original visualization conventions. Tell root CMake target needs. Do not edit upstream test/bench/viz originals.
-- Root: README, LICENSE/provenance, CMakeLists.txt, root build scripts and CI, final integration/testing and local commits. No production App integration yet.
+## Faithfulness
 
-## Integration principles
+RBush pin: `e59712716a84dda2e31f9b471b32faa178d8056f`.
+quickselect pin: `0711310d28fe5f8a5ca75c721626d8e49feb9ccb`.
 
-C++ core is the algorithm authority. No COW, concurrency, alternate split heuristics, nth_element replacement, or unrequested indexes. Preserve original reference/equality behaviors in C++ and document unavoidable value/identity adapters explicitly.
+Preserve original constructor behavior, insert/remove/clear/all/search/collides/load,
+custom bbox/comparison hooks, reference/equality removal, toJSON/fromJSON tree
+structure, split/condense, OMT/STLT, and the literal quickselect/Floyd–Rivest flow.
+No alternative R-tree, nth_element substitution, COW, or new index algorithm is
+introduced during the faithful port phase.
 
-Native and WASM run equivalent operation sequences against pinned JS oracle, checking query result identities, constructor defaults, boundary cases, and tree structure where upstream asserts it. Test degenerate/empty boxes per upstream; do not carry Hash Grid's non-empty policy into RBush.
+C++ shared node references retain original graph habits. Language-only adapters
+are documented explicitly: Swift and WASM serialize node structure as snapshots,
+not a live arbitrary-JS-mutable graph. Do not claim identical object models.
 
-ABI and Swift API should preserve upstream operation names. No Swift objects retained inside C++ algorithm; bridge owns payload mapping if needed. Node exports are diagnostic and only requested on changes, not every animation frame. Browser Canvas drawing stays JavaScript; all tree operations and bounds come from WASM in WASM mode.
+## Verification inputs
+
+Original JavaScript, tests, benchmark and visualization sources are not vendored
+or committed here. `scripts/upstream.mjs` obtains exact pinned references in an
+external cache; `ensureUpstream()` returns `{rbushRoot, quickselectRoot}` and
+`loadOriginalRBush()` loads the oracle. Temporary adapted upstream tests also
+stay outside this repository. Required licenses and origin links remain here.
+
+Original tests change only their imports when targeting native/WASM adapters.
+Compare full node order, bounds and height where upstream does, plus ordered
+item identities, collision answers and explicit adapter lifetime regressions.
+Only relevant library tests run; no MateText full test suite or device actions.
+
+The C++ core is shared by native C++, C ABI, Swift and actual WASM. Browser
+JavaScript draws exported data and provides controls; it does not substitute a
+JavaScript tree in WASM mode. Diagnostic node export happens on changes, not
+on every animation frame.

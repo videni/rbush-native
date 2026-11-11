@@ -17,10 +17,6 @@ public final class RBushItem<Payload> {
     public init(_ boundingBox: BoundingBox, payload: Payload) {
         self.boundingBox = boundingBox; self.payload = payload
     }
-    fileprivate func native(identity: UInt64) -> rbush_item {
-        rbush_item(min_x: boundingBox.minX, min_y: boundingBox.minY,
-                   max_x: boundingBox.maxX, max_y: boundingBox.maxY, identity: identity)
-    }
 }
 
 public struct RBushError: Error, CustomStringConvertible {
@@ -40,9 +36,50 @@ private func equalityCallback(_ requested: UInt64, _ candidate: UInt64, _ raw: U
     return raw.assumingMemoryBound(to: EqualityContext.self).pointee.matches(candidate) ? 1 : 0
 }
 
+// Stack-owned during one synchronous C operation. C stores only its raw
+// address for that operation and never retains a Swift closure or object.
+private struct ComparisonContext {
+    let x: ((UInt64, UInt64) -> Double)?
+    let y: ((UInt64, UInt64) -> Double)?
+}
+private func compareXCallback(_ lhs: UInt64, _ rhs: UInt64, _ raw: UnsafeMutableRawPointer?) -> Double {
+    guard let raw else { preconditionFailure("Missing comparison context") }
+    return raw.assumingMemoryBound(to: ComparisonContext.self).pointee.x?(lhs, rhs) ?? 0
+}
+private func compareYCallback(_ lhs: UInt64, _ rhs: UInt64, _ raw: UnsafeMutableRawPointer?) -> Double {
+    guard let raw else { preconditionFailure("Missing comparison context") }
+    return raw.assumingMemoryBound(to: ComparisonContext.self).pointee.y?(lhs, rhs) ?? 0
+}
+
 /// Thin reference-type owner of the C++ RBush. This type is not synchronized;
 /// serialize access just as for the upstream mutable JavaScript tree.
 public final class RBush<Payload> {
+    public typealias Projection = (RBushItem<Payload>) -> BoundingBox
+    public typealias Comparison = (RBushItem<Payload>, RBushItem<Payload>) -> Double
+
+    /// The input projection used at the C boundary. Remove before changing an
+    /// indexed item's projected coordinates, then insert the same object again.
+    public func toBBox(_ item: RBushItem<Payload>) -> BoundingBox {
+        projection?(item) ?? item.boundingBox
+    }
+    public func compareMinX(_ lhs: RBushItem<Payload>, _ rhs: RBushItem<Payload>) -> Double {
+        minXComparison?(lhs, rhs) ?? (toBBox(lhs).minX - toBBox(rhs).minX)
+    }
+    public func compareMinY(_ lhs: RBushItem<Payload>, _ rhs: RBushItem<Payload>) -> Double {
+        minYComparison?(lhs, rhs) ?? (toBBox(lhs).minY - toBBox(rhs).minY)
+    }
+    /// Reset with nil. Changing a projection does not rebuild existing nodes.
+    @discardableResult public func setToBBox(_ projection: Projection?) -> Self {
+        self.projection = projection
+        return self
+    }
+    /// Nil restores each original coordinate comparator. Hooks survive clear
+    /// and fromJSON. Callbacks must not mutate or reenter this same tree.
+    @discardableResult public func setComparators(compareMinX: Comparison? = nil, compareMinY: Comparison? = nil) -> Self {
+        minXComparison = compareMinX; minYComparison = compareMinY
+        return self
+    }
+
     /// Structural snapshot, preserving child order, boxes and height exactly.
     /// Node containers have Swift value semantics; leaf items retain identity.
     public struct Node {
@@ -57,6 +94,9 @@ public final class RBush<Payload> {
     public indirect enum Child { case item(RBushItem<Payload>), node(Node) }
 
     private let handle: OpaquePointer
+    private var projection: Projection?
+    private var minXComparison: Comparison?
+    private var minYComparison: Comparison?
     private var identities: [ObjectIdentifier: UInt64] = [:]
     private var items: [UInt64: RBushItem<Payload>] = [:]
     private var occurrences: [UInt64: Int] = [:]
@@ -64,7 +104,9 @@ public final class RBush<Payload> {
     public let maxEntries: Int
     public let minEntries: Int
 
-    public init(maxEntries: Int = 9) throws {
+    /// Customization closures are retained by Swift. Avoid strong captures of
+    /// this tree, and do not mutate or reenter it from a customization callback.
+    public init(maxEntries: Int = 9, toBBox: Projection? = nil, compareMinX: Comparison? = nil, compareMinY: Comparison? = nil) throws {
         guard let maximum = Int32(exactly: maxEntries) else { throw RBushError("maxEntries exceeds C ABI Int32 range") }
         var created: OpaquePointer?
         try check(rbush_create(maximum, &created))
@@ -73,8 +115,40 @@ public final class RBush<Payload> {
         do { try check(rbush_get_capacity(created, &maxValue, &minValue)) }
         catch { rbush_destroy(created); throw error }
         handle = created; self.maxEntries = Int(maxValue); minEntries = Int(minValue)
+        projection = toBBox; minXComparison = compareMinX; minYComparison = compareMinY
     }
     deinit { rbush_destroy(handle) }
+
+    private func native(_ item: RBushItem<Payload>, identity: UInt64) -> rbush_item {
+        let bounds = toBBox(item)
+        return rbush_item(min_x: bounds.minX, min_y: bounds.minY,
+                          max_x: bounds.maxX, max_y: bounds.maxY, identity: identity)
+    }
+    private func withComparators<Result>(_ operation: () throws -> Result) throws -> Result {
+        guard minXComparison != nil || minYComparison != nil else { return try operation() }
+        let candidates = items
+        func bridge(_ comparison: Comparison?) -> ((UInt64, UInt64) -> Double)? {
+            comparison.map { comparison in
+                { lhs, rhs in
+                    guard let lhs = candidates[lhs], let rhs = candidates[rhs] else {
+                        preconditionFailure("Unknown comparison item identity")
+                    }
+                    return comparison(lhs, rhs)
+                }
+            }
+        }
+        var context = ComparisonContext(x: bridge(minXComparison), y: bridge(minYComparison))
+        var x: rbush_compare_fn?, y: rbush_compare_fn?
+        if minXComparison != nil { x = compareXCallback }
+        if minYComparison != nil { y = compareYCallback }
+        return try withUnsafeMutablePointer(to: &context) { pointer in
+            try check(rbush_set_comparators(handle, x, y, pointer))
+            // The handle remains live throughout this scope; clearing only the
+            // callback pointers cannot fail. No raw stack address escapes.
+            defer { _ = rbush_set_comparators(handle, nil, nil, nil) }
+            return try operation()
+        }
+    }
 
     private func register(_ item: RBushItem<Payload>) -> UInt64 {
         let key = ObjectIdentifier(item)
@@ -93,13 +167,15 @@ public final class RBush<Payload> {
     }
     @discardableResult public func insert(_ item: RBushItem<Payload>) throws -> Self {
         let id = register(item)
-        try check(rbush_insert(handle, item.native(identity: id)))
+        try withComparators { try check(rbush_insert(handle, native(item, identity: id))) }
         occurrences[id, default: 0] += 1
         return self
     }
     @discardableResult public func load(_ values: [RBushItem<Payload>]) throws -> Self {
-        let projected = values.map { $0.native(identity: register($0)) }
-        try projected.withUnsafeBufferPointer { try check(rbush_load(handle, $0.baseAddress, $0.count)) }
+        let projected = values.map { native($0, identity: register($0)) }
+        try withComparators {
+            try projected.withUnsafeBufferPointer { try check(rbush_load(handle, $0.baseAddress, $0.count)) }
+        }
         for value in projected { occurrences[value.identity, default: 0] += 1 }
         return self
     }
@@ -116,10 +192,10 @@ public final class RBush<Payload> {
                 return equals(item, candidate)
             }
             try withUnsafeMutablePointer(to: &context) { pointer in
-                try check(rbush_remove_ex(handle, item.native(identity: id), equalityCallback, pointer, &removed, &removedID))
+                try check(rbush_remove_ex(handle, native(item, identity: id), equalityCallback, pointer, &removed, &removedID))
             }
         } else {
-            try check(rbush_remove_ex(handle, item.native(identity: id), nil, nil, &removed, &removedID))
+            try check(rbush_remove_ex(handle, native(item, identity: id), nil, nil, &removed, &removedID))
         }
         if removed != 0 { forget(removedID) }
         return self
@@ -198,7 +274,7 @@ public final class RBush<Payload> {
                     if let existing = newIDs[key] { id = existing }
                     else { id = next; next += 1; newIDs[key] = id; newItems[id] = item }
                     newCounts[id, default: 0] += 1
-                    values.append(item.native(identity: id))
+                    values.append(native(item, identity: id))
                 }
             } else {
                 let offset = children.count

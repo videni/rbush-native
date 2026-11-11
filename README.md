@@ -1,42 +1,58 @@
-# RBush C++ / Swift / WebAssembly
+# RBush Native · C++17
 
-This is a faithful, function-by-function C++17 port of [RBush](https://github.com/mourner/rbush), with Swift and WebAssembly adapters. **OpenAI Codex is responsible for the port.** Original authorship and MIT licensing are preserved.
+本项目是 [mourner/rbush](https://github.com/mourner/rbush) 的独立 C++17 移植仓库，**由 OpenAI Codex 负责一对一忠实移植**。原作者与算法版权归 Volodymyr Agafonkin 及原项目贡献者所有；RBush 的 MIT 许可与 quickselect 的 ISC 许可均保留。
 
-本项目是 [mourner/rbush](https://github.com/mourner/rbush) 的原生语言移植项目，**由 OpenAI Codex 负责移植**。
+This is an independent, faithful, function-by-function C++17 port of [RBush](https://github.com/mourner/rbush). **OpenAI Codex is responsible for the port.** Original authorship and license notices remain intact.
 
-## 移植说明
+## 移植范围
 
-本项目遵循“原封不动、一对一忠实移植”的原则：以固定版本的原版 RBush 源码为唯一算法基线，保留原版 API 习惯、算法步骤、边界行为、测试、性能基准（bench）与可视化；不自行重新设计或替换树算法。编程语言必需的类型、内存所有权与 FFI 适配会单独说明，不冒充原版已经具备的能力。
+以固定上游版本为算法基线，保留 `all/search/collides/load/insert/remove/clear/toJSON/fromJSON`、OMT/STLT、split/condense、默认容量 9、quickselect/Floyd–Rivest、引用身份与重复项行为。C ABI、Swift 和 WebAssembly 使用同一个 C++ 内核。首版不加入 COW、并发快照、其他索引或替代算法。
 
-原作者与算法版权归原项目作者所有。本项目保留原版 MIT 许可、版权声明和来源链接；Codex 的说明用于交代移植来源，不取代原作者署名。
+仓库只跟踪本项目的原生实现、包装层和适配后的测试、bench、浏览器 demo。原版 JavaScript、测试、bench 和 viz 由工具按固定 commit 获取到**仓库外的缓存**，作为差分验证输入，不在这里重复存放。来源、版本和许可证见 [UPSTREAM](docs/UPSTREAM.md)。Swift 是其中一个集成层，源码与测试位于 `integrations/swift`。根目录 `Package.swift` 仅作为标准 SwiftPM 的 Git URL 发现入口，直接编译同一份 C++ 核心，不另存一份核心或组织全仓库。
 
-- RBush 上游：[e59712716a84dda2e31f9b471b32faa178d8056f](https://github.com/mourner/rbush/tree/e59712716a84dda2e31f9b471b32faa178d8056f)。
-- 原版 README：[README.upstream.md](README.upstream.md)。
-- 根目录 `index.js`、`test/`、`bench/`、`viz/` 保留原版，用作行为参考与差分验证。
-- 新库内提供 C++17 内核、薄 C ABI、Swift 包装和 `Package.swift`；Swift 包装不放入 MateText 私有业务代码。
-- 同一 C++ 内核编译为 WebAssembly，由浏览器可视化调用实际 WASM，不展示另一套 JS 树冒充原生实现。
+当前已实现 C++ 内核、C ABI、Swift Package 和实际 WASM demo；迁移验证与已有行为证据见 [验证记录](docs/VERIFICATION.md)。浏览器可见交互尚未完成人工验收，也尚未接入 MateText 生产索引。
 
-## 当前状态
+## C++ 核心与目录
 
-C++ 内核、C ABI、同仓库 Swift Package 和 WebAssembly 已实现。已完成原版测试与差分验证，详见 [验证记录](docs/VERIFICATION.md)。浏览器视觉/交互人工验收尚未完成；尚未接入 MateText 生产索引。
+| 位置 | 职责 |
+|---|---|
+| [include](include/) | C++17 RBush 与 quickselect 核心，header-only。 |
+| [bindings/c](bindings/c/) | 薄 C ABI，供跨语言调用。 |
+| [tests](tests/) / [benchmarks](benchmarks/) | 原生测试、差分适配和性能 workload。 |
+| [integrations/swift](integrations/swift/) | Swift 包装与聚焦测试。 |
+| [integrations/wasm](integrations/wasm/) | 编译同一核心的 WebAssembly 绑定。 |
+| [examples/web](examples/web/) | 浏览器验证与可视化示例。 |
 
-## 开发边界
-
-首版先忠实移植，再讨论额外能力。原版没有的 COW、并发快照、增量密度摘要等不得悄悄加入核心；业务接入另行验证。原生性能、WASM 性能和浏览器绘制耗时分别测量。
-
-
-## 快速开始
-
-C++ 核心为 `cpp/include/rbush.hpp`，默认容量 9、最小容量 4。C ABI 位于 `cpp/include/rbush.h`；Swift 包装位于 `Sources/RBush/`，两者使用同一个核心。
+C++ 核心只需 C++17 编译器。CMake 3.20+ 用于构建 C ABI、原生测试和 bench；Node.js 22+ 用于差分工具和浏览器示例，不是 C++ 核心依赖。
 
 ```bash
-npm ci --ignore-scripts
-scripts/test-native.sh
-RBUSH_PARITY_CLI="$PWD/build-native/rbush_parity_cli" node scripts/parity-upstream.mjs native
-swift test --jobs 3
+git clone https://github.com/videni/rbush-native.git ~/Workspace/rbush-native
+export RBUSH_REPO="$HOME/Workspace/rbush-native"
+bash "$RBUSH_REPO/scripts/test-native.sh"
 ```
 
-Swift 项目通过本仓库的 `Package.swift` 依赖 `RBush` product：
+核心可直接使用 [rbush.hpp](include/rbush.hpp)。CMake consumer 可链接 `rbush::core`；需要 C ABI 时链接 `rbush::c`，接口见 [rbush.h](bindings/c/include/rbush.h)。
+
+```cpp
+#include "rbush.hpp"
+#include <memory>
+
+rbush::RBush<> tree;
+auto item = std::make_shared<rbush::Item>();
+item->minX = 0; item->minY = 0;
+item->maxX = 100; item->maxY = 60;
+tree.insert(item);
+auto hits = tree.search(rbush::Box{10, 10, 20, 20});
+tree.remove(item);
+```
+
+## Swift 集成
+
+Swift 包装使用 Swift tools 5.9+。通过本仓库 Git URL 引用 `RBush` product；根 manifest 是薄入口，实际包装位于 [integrations/swift](integrations/swift/)，C target 直接编译共享 C ABI 与核心。无需单独复制 C++ 或安装 npm 依赖。
+
+```bash
+swift test --package-path "$RBUSH_REPO" --jobs 3
+```
 
 ```swift
 import RBush
@@ -51,42 +67,55 @@ let hits = try tree.search(BoundingBox(minX: 10, minY: 10, maxX: 20, maxY: 20))
 try tree.remove(item)
 ```
 
-浏览器使用同一 C++ 核心的 WASM 产物：
+## WebAssembly 与可视化
+
+安装并激活官方 Emscripten 4.0.20，使 `em++` 位于 PATH，或将 `EMXX` 指向可执行文件。工具链放在仓库外。然后执行：
 
 ```bash
-# 安装并激活官方 Emscripten 4.0.20，或设置 EMXX 指向 em++
-scripts/wasm-build.sh
-node scripts/parity-upstream.mjs wasm
-python3 -m http.server 8127
+bash "$RBUSH_REPO/scripts/wasm-build.sh"
+node "$RBUSH_REPO/scripts/parity-upstream.mjs" wasm
+python3 "$RBUSH_REPO/scripts/serve.py"
 ```
 
-打开 [本地可视化](http://localhost:8127/wasm/)。提供原版 JS / C++ WASM 切换、uniform / cluster、5k / 10k / 50k / 100k、插入/批量插入/删除、树层级与查询高亮、测试和 benchmark 面板。构建产物不提交，使用前需要生成 `wasm/dist/`。完整说明见 [wasm/README.md](wasm/README.md)。
+打开 [本地可视化](http://127.0.0.1:8128/examples/web/)。服务器将外部上游缓存映射到 `/__reference/rbush/` 和 `/__reference/quickselect/`，默认仅监听 `127.0.0.1`。JS / C++ WASM 切换、uniform / cluster 数据、5k / 10k / 50k / 100k、树层级、查询高亮和 benchmark 面板沿用原版验证习惯。WASM 模式的树操作和 bounds 来自实际 C++，Canvas 绘制由浏览器完成。生成的 WASM 产物不提交；详见 [WASM 使用说明](integrations/wasm/README.md)。
 
-## 保真范围与语言适配
+## 语言适配与所有权
 
 | 层 | 行为与边界 |
 |---|---|
-| C++ 核心 | 逐函数移植 RBush 和 quickselect；保留 OMT/STLT、split/condense、稳定排序、引用身份与自定义 equality、虚方法 hooks，以及共享节点图的 toJSON/fromJSON。容量采用整数；C++ 虚方法覆盖对应 JS 的自定义方法。 |
-| C ABI | opaque handle、批量 POD、显式释放；单次查询结果使用独立 owned buffer。异常转换为错误码，非法节点结构在进入核心前拒绝。 |
-| Swift | 引用类型 item 保留身份与重复出现；bbox/payload 可变，移除后改 bbox 再插回。操作可抛出错误，修改操作返回 Self；自定义数据放入泛型 payload，bbox 在边界投影。 |
-| Swift 节点导出 | toJSON 返回结构快照值，叶 item 保持身份；不自动编码 JSON 文本，不保留 JS 式节点容器共享别名。fromJSON 保留节点结构，不扁平化重建。 |
-| 浏览器 WASM 适配 | 操作调用真正的 C++；对象 identity、equality、比较器回调保留。data/toJSON 是诊断快照，修改快照需 fromJSON 导回；不是原 JS 可任意修改的 live data 对象。原对象坐标在移除、修改、重插时重新投影。 |
+| C++ | 原操作、稳定排序、引用身份、自定义 equality、虚方法 hooks 和共享节点图的 `toJSON/fromJSON`；容量以整数表达。 |
+| C ABI | opaque handle、批量 POD、显式释放；单次查询生成独立 owned buffer。异常转为错误码，非法节点结构在进入核心前拒绝。比较器 callback/context 由调用方保活，替换或销毁后可释放。 |
+| Swift | `RBushItem` 为引用类型，相同对象可重复出现；默认移除一个同身份项。bbox/payload 可变，采用 remove → 修改 bbox → insert。修改操作返回 `Self`，操作可抛出错误，泛型 payload 与 bbox 投影分开。 |
+| Swift 节点 | `toJSON` 返回保留顺序、bbox 和高度的结构快照值，叶 item 保持身份；不自动编码 JSON 文本，不共享节点容器别名。`fromJSON` 直接导入结构，不扁平化重建。 |
+| 浏览器 WASM | 对象身份、自定义 equality 与比较器回调进入原生核心。`data/toJSON` 是诊断快照，修改后须 `fromJSON` 导回；坐标通过 remove → 修改 → insert 重新投影。 |
 
-C++ 核心保留原算法；语言适配差异明确列出，不声称所有语言的对象模型完全等价。可变 tree 的并发访问需调用方协调。分配/内部错误不承诺事务回滚；原生边界出错后应清理或重建，结构校验失败则保留原树。
+可变 tree 的并发访问由调用方协调。分配或内部错误不承诺事务回滚，出错后应清理或重建；结构校验失败保留原树。节点快照、跨语言对象模型差异不作为算法能力变化。
 
-## 测试与性能基准
+## 差分测试与 bench
 
-保留原版 `test/`、`bench/`、`viz/`。原版 26 项测试仅改 import，分别指向 native CLI 和实际 WASM；另核对完整树形、顺序、bbox、查询结果与内存增长。
+先按固定版本获取仓库外的上游参考。验证工具只替换原版测试的导入目标，分别运行 native CLI 和实际 WASM；另外比较完整树形、顺序、bbox、查询结果及内存增长。原版 benchmark workload 有对应的原生/适配版本。
 
 ```bash
-node scripts/parity-sequences.mjs native
-node scripts/parity-sequences.mjs wasm
-node scripts/parity-datasets.mjs native
-node scripts/parity-datasets.mjs wasm
-node --expose-gc scripts/parity-adapter-regressions.mjs
-node scripts/parity-bench.mjs
-build-native/rbush_bench 100000
-build-native/rbush_bench suite
+node "$RBUSH_REPO/scripts/fetch-upstream.mjs"
+node "$RBUSH_REPO/scripts/parity-upstream.mjs" original
+export RBUSH_PARITY_CLI="$RBUSH_REPO/build-native/rbush_parity_cli"
+node "$RBUSH_REPO/scripts/parity-upstream.mjs" native
+node "$RBUSH_REPO/scripts/parity-source.mjs"
+node "$RBUSH_REPO/scripts/parity-sequences.mjs" native
+node "$RBUSH_REPO/scripts/parity-sequences.mjs" wasm
+node "$RBUSH_REPO/scripts/parity-datasets.mjs" native
+node "$RBUSH_REPO/scripts/parity-datasets.mjs" wasm
+node --expose-gc "$RBUSH_REPO/scripts/parity-adapter-regressions.mjs"
+node "$RBUSH_REPO/scripts/parity-bench.mjs"
+"$RBUSH_REPO/build-native/rbush_bench" 100000
+"$RBUSH_REPO/build-native/rbush_bench" suite
 ```
 
-基准保留原 workload，固定随机种子便于对照；原生核心、Swift 包装、WASM 桥接与浏览器绘制耗时分别解释。没有将 JavaScript 或 WASM 的结果当成 iPad App 的提升承诺。
+固定随机种子便于对照。原生核心、Swift 包装、WASM 桥接与浏览器绘制耗时分别解释，不将这些结果当作 iPad App 的性能承诺。
+
+
+## 上游对齐与本次移植性能
+
+原版JS、C++和WASM已经按固定版本做功能/树形差分；Swift也提供 `toBBox`、`compareMinX/Y` 自定义closure与reset接口，使用现有C hooks，不另写算法。语言模型差异仍以本文说明为准，不声称所有语言层完全等价。
+
+[同一画布数据的性能报告](docs/PERFORMANCE.md) 使用前面相同的16份数据/查询，分别运行原版JS和本次C++，不是另换随机workload。结果包含全部384个条件及输入SHA；并非iPad App端到端性能。

@@ -1,8 +1,8 @@
-import Original from '../index.js';
-import {WasmRBush,module} from './runtime.mjs';
-import {random,uniform,cluster} from './datasets.mjs';
-import {benchmark,microbenchmarks} from './benchmark.mjs';
-import {begin,getResults} from './browser-test-harness.mjs';
+import Original from './original.mjs';
+import {WasmRBush,module} from '../../integrations/wasm/runtime.mjs';
+import {random,uniform,cluster} from '../../benchmarks/datasets.mjs';
+import {benchmark,microbenchmarks} from '../../benchmarks/benchmark.mjs';
+import {begin,getResults} from '../../tests/browser/harness.mjs';
 
 const $=id=>document.getElementById(id), canvas=$('canvas'),ctx=canvas.getContext('2d');
 const colors=['#f40','#0b0','#37f'];
@@ -54,11 +54,13 @@ $('remove').onclick=()=>mutate('remove leftmost',()=>{data.sort(tree.compareMinX
 async function upstreamTests() {
     $('tests').disabled=true;$('test-results').replaceChildren();let passes=0,total=0;
     try {
-        const source=await (await fetch('../test/test.js')).text();
+        const response=await fetch('/__reference/rbush/test/test.js');
+        if(!response.ok)throw new Error(`Pinned upstream tests unavailable: HTTP ${response.status}. Restart scripts/serve.py after fetching references.`);
+        const source=await response.text();
         for(const [name,Base] of [['Original JS',Original],['C++ WASM',WasmRBush]]) {
             const trees=[];
             window.RBushUnderTest=class extends Base {constructor(...args){super(...args);trees.push(this);}};
-            const harness=new URL('./browser-test-harness.mjs',location.href).href;
+            const harness=new URL('../../tests/browser/harness.mjs',import.meta.url).href;
             const adapted=source.replace("import RBush from '../index.js';",'const RBush = window.RBushUnderTest;')
                 .replace("import test from 'node:test';",`import test from '${harness}';`)
                 .replace("import assert from 'node:assert/strict';",`import {assert} from '${harness}';`);

@@ -1,15 +1,7 @@
-node_modules
-npm-debug.log
-coverage
-.nyc_output
-rbush.js
-rbush.min.js
-
-# Native port build artifacts
+# Native/Swift build outputs
 /build*/
 /.build/
 /.swiftpm/
-/.tools/
-/node_modules/
-/wasm/dist/
+/integrations/integrations/wasm/dist/
 /logs/
+.DS_Store

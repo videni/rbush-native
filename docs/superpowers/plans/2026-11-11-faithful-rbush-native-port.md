@@ -39,3 +39,15 @@
 - Review findings fixed in one pass: reference-parameter root alias, malformed import OOB, comparator forwarding, zero capacity default, payload bookkeeping. No dropped tests or weakened expectations.
 - Ruling: C++ NodePtr preserves original live aliasing. Swift/WASM export uses structural snapshots across language boundary, documented explicitly; native algorithm remains unchanged, no per-query full-tree synchronization added. Cost: callers needing JS live-node mutations must explicitly import the changed snapshot.
 - Browser tool could not navigate generated tab (request-policy/timeout interface errors); no visual screenshot claim. Local browser server remains available8127; actual WASM tested in Node and its source is the same core.
+
+
+## Independent repository migration
+
+- User requested a fresh repository containing only our implementation, not a fork with upstream source mixed in.
+- Created videni/rbush-native (GitHub fork=false) and ~/Workspace/rbush-native; independent root commit e78454e.
+- Owned implementation commit7aec959 was cherry-picked as1f02440. No upstream root index.js/test/bench/viz/package metadata are tracked here; required licenses remain.
+- New reference helper fetches exact upstream inputs outside this repository; original tests and JS comparison load from that external cache. Native/Swift/WASM source stays unchanged unless path relocation requires adapters.
+- Three parallel followups: external oracle/test harness; web/reference server; README/provenance/CI/Swift packaging. Root handles git ancestry and targeted relocation verification.
+
+- Library phase ready for publication: C++primary layout, independent history, external pinned verification inputs, Swiftcustomization15tests, same earliercanvasfixture384-condition C++/JScomparison completed. User explicitlyauthorizedpush, removalofoldrbush-cpp afterpreservation, andthenprojectintegration.
+- Integrationgoalactive: replaceHashGrid backend, unifyfullcontentbbox and onlytheexistingNotebook compass's internalminimap; preserve snapshot semantics and consumerfeatures. No separate mini map screen/navigation UI.

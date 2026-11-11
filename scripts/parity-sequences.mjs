@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import Original from '../index.js';
+import {loadOriginalRBush} from './upstream.mjs';
+const Original = await loadOriginalRBush();
 const backend=process.argv[2] || 'native';
-const {default:Port}=await import(backend==='wasm' ? '../wasm/test-adapter.mjs' : '../cpp/test/native-adapter.mjs');
+const {default:Port}=await import(backend==='wasm' ? '../integrations/wasm/test-adapter.mjs' : '../tests/native-adapter.mjs');
 let checkpoints=0;
 for(const seed of [1,17,613]) for(const max of [4,9,16]) {
     let state=seed;
