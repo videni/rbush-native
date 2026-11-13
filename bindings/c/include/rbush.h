@@ -73,6 +73,15 @@ rbush_status rbush_from_json(rbush_tree *tree,
    Comparator pointers/context are copied without taking context ownership. */
 rbush_status rbush_root_bounds(const rbush_tree *tree, rbush_box *out_bounds, int32_t *out_empty);
 rbush_status rbush_clone(const rbush_tree *tree, rbush_tree **out_tree);
+/* Value-index writes keyed by identity: one canonical item per identity.
+   Upsert skips unchanged boxes, moves changed ones and bulk-loads the rest in a
+   single native pass; a repeated identity keeps its last box. out_changed counts
+   accepted updates. count_changes is the read-only preview of the same decision.
+   remove_identities drops each identity's canonical item. Outputs are optional
+   except count_changes' out_changes. Raw duplicate insertion is unaffected. */
+rbush_status rbush_upsert_many(rbush_tree *tree, const rbush_item *items, size_t count, size_t *out_changed);
+rbush_status rbush_count_changes(const rbush_tree *tree, const rbush_item *items, size_t count, size_t *out_changes);
+rbush_status rbush_remove_identities(rbush_tree *tree, const uint64_t *identities, size_t count, size_t *out_removed);
 /* Predicate is synchronous and unretained. Nonzero stops immediately. Optional
    counters report actual visited nodes and tested item boxes, not result count. */
 typedef int (*rbush_predicate_fn)(uint64_t identity, void *context);

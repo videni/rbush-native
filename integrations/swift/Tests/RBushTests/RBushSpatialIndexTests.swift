@@ -140,6 +140,68 @@ final class RBushSpatialIndexTests: XCTestCase {
         XCTAssertFalse(try index.load([(7, box(701))]))
         XCTAssertEqual(original.count, 100)
     }
+    func testBatchMovesStoredKeysAndReusesReleasedIdentities() throws {
+        var index = RBushSpatialIndex<String>(maxEntries: 4)
+        XCTAssertTrue(try index.load((0..<40).map { ("k\($0)", box(Double($0) * 10)) }))
+        // Stored key moved twice in one batch, a new key repeated, and an unchanged key.
+        XCTAssertTrue(try index.load([("k3", box(900)), ("k3", box(950)), ("n", box(500)), ("n", box(600)), ("k5", box(50))]))
+        XCTAssertEqual(index.count, 41)
+        XCTAssertEqual(try index.candidates(in: box(950)), ["k3"])
+        XCTAssertTrue(try index.candidates(in: box(900, 0, 0.5)).isEmpty)
+        XCTAssertTrue(try index.candidates(in: box(30, 0, 0.5)).isEmpty)
+        XCTAssertEqual(try index.candidates(in: box(600)), ["n"])
+        XCTAssertTrue(try index.candidates(in: box(500, 0, 0.5)).isEmpty)
+        XCTAssertFalse(try index.load([("k3", box(950)), ("n", box(600))]))
+        XCTAssertTrue(try index.removeAll(["k3", "n", "k3", "missing"]))
+        XCTAssertEqual(index.count, 39)
+        XCTAssertTrue(try index.candidates(in: box(950)).isEmpty)
+        // Released identities are reused without resurrecting the removed keys.
+        XCTAssertTrue(try index.load([("fresh1", box(950)), ("fresh2", box(600))]))
+        XCTAssertEqual(try index.candidates(in: box(950)), ["fresh1"])
+        XCTAssertEqual(try index.candidates(in: box(600)), ["fresh2"])
+        XCTAssertEqual(Set(try index.candidates(in: .init(minX: -1, minY: -1, maxX: 2000, maxY: 2))).count, 41)
+    }
+    func testSharedNoOpWriteLeavesBothCopiesIntact() throws {
+        var index = RBushSpatialIndex<Int>()
+        try index.load((0..<20).map { ($0, box(Double($0) * 3)) })
+        let snapshot = index
+        XCTAssertFalse(try index.load([(4, box(12)), (7, box(21))]))
+        XCTAssertFalse(try index.removeAll([99]))
+        XCTAssertTrue(try index.insert(4, bounds: box(400)))
+        XCTAssertEqual(try snapshot.candidates(in: box(12, 0, 0.5)), [4])
+        XCTAssertTrue(try snapshot.candidates(in: box(400)).isEmpty)
+        XCTAssertEqual(try index.candidates(in: box(400)), [4])
+    }
+    func testNativeIdentityUpsertCountsChangesAndRemoves() {
+        var tree: OpaquePointer?
+        XCTAssertEqual(rbush_create(4, &tree), RBUSH_OK)
+        defer { rbush_destroy(tree) }
+        func item(_ identity: UInt64, _ x: Double) -> rbush_item {
+            .init(min_x: x, min_y: 0, max_x: x + 1, max_y: 1, identity: identity)
+        }
+        var changed = 0, preview = 0, removed = 0
+        let first = (1...30).map { item(UInt64($0), Double($0) * 10) }
+        XCTAssertEqual(rbush_count_changes(tree, first, first.count, &preview), RBUSH_OK)
+        XCTAssertEqual(preview, 30)
+        XCTAssertEqual(rbush_upsert_many(tree, first, first.count, &changed), RBUSH_OK)
+        XCTAssertEqual(changed, 30)
+        let second = [item(3, 30), item(4, 700), item(4, 800), item(31, 5), item(31, 6)]
+        XCTAssertEqual(rbush_count_changes(tree, second, second.count, &preview), RBUSH_OK)
+        XCTAssertEqual(preview, 4)
+        XCTAssertEqual(rbush_upsert_many(tree, second, second.count, &changed), RBUSH_OK)
+        XCTAssertEqual(changed, 4)
+        var count = 0
+        XCTAssertEqual(rbush_all(tree, nil, 0, &count), RBUSH_OK)
+        XCTAssertEqual(count, 31)
+        XCTAssertEqual(rbush_search(tree, .init(min_x: 800, min_y: 0, max_x: 801, max_y: 1), nil, 0, &count), RBUSH_OK)
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(rbush_search(tree, .init(min_x: 700, min_y: 0, max_x: 700.5, max_y: 1), nil, 0, &count), RBUSH_OK)
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(rbush_remove_identities(tree, [4, 31, 999], 3, &removed), RBUSH_OK)
+        XCTAssertEqual(removed, 2)
+        XCTAssertEqual(rbush_all(tree, nil, 0, &count), RBUSH_OK)
+        XCTAssertEqual(count, 29)
+    }
     func testPredicateReallyStopsAtFirstCandidate() throws {
         var index = RBushSpatialIndex<Int>()
         try index.load((0..<1000).map { ($0, box(0)) })

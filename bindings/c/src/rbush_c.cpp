@@ -291,6 +291,76 @@ rbush_status rbush_clone(const rbush_tree *tree, rbush_tree **output) {
         *output = copy.release();
     });
 }
+namespace {
+bool sameBox(const rbush::Item &item, const rbush_item &value) {
+    return item.minX == value.min_x && item.minY == value.min_y && item.maxX == value.max_x && item.maxY == value.max_y;
+}
+void assignBox(rbush::Item &item, const rbush_item &value) {
+    item.minX = value.min_x; item.minY = value.min_y; item.maxX = value.max_x; item.maxY = value.max_y;
+}
+// Pointer identity: the canonical item of one identity, never a geometric twin.
+bool removeCanonical(rbush_tree &tree, const Tree::ItemPtr &item) {
+    bool found = false;
+    tree.tree.remove(item, [&](const Tree::ItemPtr &lhs, const Tree::ItemPtr &rhs) {
+        const bool equal = lhs == rhs; if (equal) found = true; return equal;
+    });
+    return found;
+}
+}
+rbush_status rbush_upsert_many(rbush_tree *tree, const rbush_item *values, size_t count, size_t *changed) {
+    return guard([&] {
+        require(tree && (values || count == 0), "tree and item buffer are required");
+        if (changed) *changed = 0;
+        size_t updates = 0;
+        std::vector<Tree::ItemPtr> pending; pending.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const auto &value = values[i];
+            auto &entry = tree->identities[value.identity];
+            auto existing = entry.lock();
+            if (!existing) {
+                existing = std::make_shared<rbush::Item>();
+                assignBox(*existing, value); existing->id = value.identity;
+                entry = existing; pending.push_back(std::move(existing)); ++updates;
+                continue;
+            }
+            if (sameBox(*existing, value)) continue;
+            // Stored in the tree: take it out under its current box and requeue.
+            // Queued earlier in this batch: not in the tree yet, only its box changes.
+            const bool stored = removeCanonical(*tree, existing);
+            assignBox(*existing, value);
+            if (stored) pending.push_back(std::move(existing));
+            ++updates;
+        }
+        tree->tree.load(pending);
+        if (changed) *changed = updates;
+    });
+}
+rbush_status rbush_count_changes(const rbush_tree *tree, const rbush_item *values, size_t count, size_t *changes) {
+    return guard([&] {
+        require(tree && changes && (values || count == 0), "tree, item buffer and output are required");
+        size_t differing = 0;
+        for (size_t i = 0; i < count; ++i) {
+            const auto entry = tree->identities.find(values[i].identity);
+            const auto existing = entry == tree->identities.end() ? nullptr : entry->second.lock();
+            if (!existing || !sameBox(*existing, values[i])) ++differing;
+        }
+        *changes = differing;
+    });
+}
+rbush_status rbush_remove_identities(rbush_tree *tree, const uint64_t *identities, size_t count, size_t *removed) {
+    return guard([&] {
+        require(tree && (identities || count == 0), "tree and identity buffer are required");
+        if (removed) *removed = 0;
+        size_t found = 0;
+        for (size_t i = 0; i < count; ++i) {
+            const auto entry = tree->identities.find(identities[i]);
+            if (entry == tree->identities.end()) continue;
+            if (const auto existing = entry->second.lock()) { if (removeCanonical(*tree, existing)) ++found; }
+            tree->identities.erase(entry);
+        }
+        if (removed) *removed = found;
+    });
+}
 rbush_status rbush_any(const rbush_tree *tree, rbush_box bounds, rbush_predicate_fn predicate,
                       void *context, int32_t *found, size_t *node_visits, size_t *item_tests) {
     return guard([&] {

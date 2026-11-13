@@ -9,30 +9,25 @@ private func spatialPredicate(_ identity: UInt64, _ context: UnsafeMutableRawPoi
     return context.assumingMemoryBound(to: SpatialPredicateContext.self).pointee.matches(identity) ? 1 : 0
 }
 
-/// Value integration over the faithful native tree. Keys and immutable geometry
-/// records are owned here; no mutable RBushItem or native handle can escape.
+/// Value integration over the faithful native tree. Keys map to dense native
+/// identities; geometry lives only in the native tree, so a write costs one key
+/// lookup here and the rest happens in a single native pass.
 /// Copies share read-only storage, cloning native nodes/items on first mutation.
 /// That first write is O(N); subsequent writes reuse uniquely owned storage.
 public struct RBushSpatialIndex<Key: Hashable> {
-    private struct Record {
-        let token: UInt64
-        let bounds: BoundingBox
-        var native: rbush_item {
-            .init(min_x: bounds.minX, min_y: bounds.minY, max_x: bounds.maxX, max_y: bounds.maxY, identity: token)
-        }
-    }
     private final class Storage {
         var handle: OpaquePointer?
         let maxEntries: Int
-        var records: [Key: Record] = [:]
-        var keys: [UInt64: Key] = [:]
-        var nextToken: UInt64 = 1
+        var tokens: [Key: UInt64] = [:]
+        /// Indexed by identity; slot 0 is never issued. Released slots are reused.
+        var keys: [Key?] = [nil]
+        var freeTokens: [UInt64] = []
         init(maxEntries: Int) { self.maxEntries = maxEntries }
         deinit { rbush_destroy(handle) }
         func cloned() throws -> Storage {
             let result = Storage(maxEntries: maxEntries)
             if let handle { try spatialCheck(rbush_clone(handle, &result.handle)) }
-            result.records = records; result.keys = keys; result.nextToken = nextToken
+            result.tokens = tokens; result.keys = keys; result.freeTokens = freeTokens
             return result
         }
         func createIfNeeded() throws {
@@ -40,80 +35,78 @@ public struct RBushSpatialIndex<Key: Hashable> {
             guard let maximum = Int32(exactly: maxEntries) else { throw RBushError("maxEntries exceeds Int32 range") }
             try spatialCheck(rbush_create(maximum, &handle))
         }
+        /// One hashed write for a new key; a known key keeps its identity.
+        func token(for key: Key) -> UInt64 {
+            let candidate = freeTokens.last ?? UInt64(keys.count)
+            if let existing = tokens.updateValue(candidate, forKey: key) {
+                tokens[key] = existing
+                return existing
+            }
+            if freeTokens.isEmpty { keys.append(key) } else { freeTokens.removeLast(); keys[Int(candidate)] = key }
+            return candidate
+        }
+        func release(_ token: UInt64) { keys[Int(token)] = nil; freeTokens.append(token) }
     }
     private var storage: Storage
     public init(maxEntries: Int = 9) { storage = Storage(maxEntries: maxEntries) }
-    public var count: Int { storage.records.count }
+    public var count: Int { storage.tokens.count }
     /// O(1). Nil means empty; finite points and zero-width/height boxes contribute.
     public var bounds: BoundingBox? {
-        guard !storage.records.isEmpty else { return nil }
+        guard !storage.tokens.isEmpty else { return nil }
         var root = rbush_box(), empty: Int32 = 0
         let status = rbush_root_bounds(storage.handle, &root, &empty)
         precondition(status == RBUSH_OK && empty == 0, "Invalid spatial index storage")
         return .init(minX: root.min_x, minY: root.min_y, maxX: root.max_x, maxY: root.max_y)
     }
-    private mutating func ensureWritable() throws {
-        if !isKnownUniquelyReferenced(&storage) { storage = try storage.cloned() }
-        try storage.createIfNeeded()
+    private static func native(_ bounds: BoundingBox, _ token: UInt64) -> rbush_item {
+        .init(min_x: bounds.minX, min_y: bounds.minY, max_x: bounds.maxX, max_y: bounds.maxY, identity: token)
     }
-    private func newRecord(bounds: BoundingBox, existing: Record?) throws -> Record {
-        if let existing { return Record(token: existing.token, bounds: bounds) }
-        guard storage.nextToken < UInt64.max else { throw RBushError("Spatial identity space exhausted") }
-        let token = storage.nextToken; storage.nextToken += 1
-        return Record(token: token, bounds: bounds)
+    /// Read-only preview for shared storage: a no-op write must not clone.
+    private func wouldChange(_ entries: [(Key, BoundingBox)]) throws -> Bool {
+        guard let handle = storage.handle else { return true }
+        var known: [rbush_item] = []; known.reserveCapacity(entries.count)
+        for (key, bounds) in entries {
+            guard let token = storage.tokens[key] else { return true }
+            known.append(Self.native(bounds, token))
+        }
+        var changes = 0
+        try known.withUnsafeBufferPointer { try spatialCheck(rbush_count_changes(handle, $0.baseAddress, $0.count, &changes)) }
+        return changes > 0
     }
     @discardableResult public mutating func insert(_ key: Key, bounds: BoundingBox) throws -> Bool {
-        guard storage.records[key]?.bounds != bounds else { return false }
-        try ensureWritable()
-        let old = storage.records[key]
-        let replacement = try newRecord(bounds: bounds, existing: old)
-        if let old { try spatialCheck(rbush_remove(storage.handle, old.native, nil, nil)) }
-        try spatialCheck(rbush_insert(storage.handle, replacement.native))
-        storage.records[key] = replacement; storage.keys[replacement.token] = key
-        return true
+        try load([(key, bounds)])
     }
     /// Uses original native bulk loading. Last geometry wins for repeated keys;
     /// raw RBush's independent duplicate-entry semantics remain unchanged.
     @discardableResult public mutating func load(_ entries: [(Key, BoundingBox)]) throws -> Bool {
-        var final: [Key: BoundingBox] = [:], order: [Key] = []
-        for (key, bounds) in entries {
-            if final[key] == nil { order.append(key) }
-            final[key] = bounds
+        guard !entries.isEmpty else { return false }
+        if !isKnownUniquelyReferenced(&storage) {
+            guard try wouldChange(entries) else { return false }
+            storage = try storage.cloned()
         }
-        let changed = order.filter { storage.records[$0]?.bounds != final[$0] }
-        guard !changed.isEmpty else { return false }
-        try ensureWritable()
-        var records: [(Key, Record)] = []; records.reserveCapacity(changed.count)
-        for key in changed {
-            guard let bounds = final[key] else { preconditionFailure("Missing batch bounds") }
-            let old = storage.records[key]
-            let replacement = try newRecord(bounds: bounds, existing: old)
-            if let old { try spatialCheck(rbush_remove(storage.handle, old.native, nil, nil)) }
-            records.append((key, replacement))
-        }
-        let native = records.map { $0.1.native }
-        try native.withUnsafeBufferPointer { try spatialCheck(rbush_load(storage.handle, $0.baseAddress, $0.count)) }
-        for (key, record) in records { storage.records[key] = record; storage.keys[record.token] = key }
-        return true
+        try storage.createIfNeeded()
+        let storage = storage
+        var native: [rbush_item] = []; native.reserveCapacity(entries.count)
+        for (key, bounds) in entries { native.append(Self.native(bounds, storage.token(for: key))) }
+        var changed = 0
+        try native.withUnsafeBufferPointer { try spatialCheck(rbush_upsert_many(storage.handle, $0.baseAddress, $0.count, &changed)) }
+        return changed > 0
     }
     @discardableResult public mutating func remove(_ key: Key) throws -> Bool {
-        guard storage.records[key] != nil else { return false }
-        try ensureWritable()
-        guard let record = storage.records[key] else { preconditionFailure("Missing removal record") }
-        try spatialCheck(rbush_remove(storage.handle, record.native, nil, nil))
-        storage.records.removeValue(forKey: key); storage.keys.removeValue(forKey: record.token)
-        return true
+        try removeAll([key])
     }
     @discardableResult public mutating func removeAll(_ keys: [Key]) throws -> Bool {
-        let present = Set(keys).filter { storage.records[$0] != nil }
-        guard !present.isEmpty else { return false }
-        try ensureWritable()
-        for key in present { try remove(key) }
+        guard keys.contains(where: { storage.tokens[$0] != nil }) else { return false }
+        if !isKnownUniquelyReferenced(&storage) { storage = try storage.cloned() }
+        var released: [UInt64] = []; released.reserveCapacity(keys.count)
+        for key in keys { if let token = storage.tokens.removeValue(forKey: key) { released.append(token) } }
+        try released.withUnsafeBufferPointer { try spatialCheck(rbush_remove_identities(storage.handle, $0.baseAddress, $0.count, nil)) }
+        for token in released { storage.release(token) }
         return true
     }
     public mutating func reset() { storage = Storage(maxEntries: storage.maxEntries) }
     public func candidates(in bounds: BoundingBox) throws -> Set<Key> {
-        guard let handle = storage.handle, !storage.records.isEmpty else { return [] }
+        guard let handle = storage.handle, !storage.tokens.isEmpty else { return [] }
         var result: OpaquePointer?
         try spatialCheck(rbush_search_result(handle, bounds.nativeBox, &result))
         guard let result else { throw RBushError("Missing spatial query result") }
@@ -121,17 +114,18 @@ public struct RBushSpatialIndex<Key: Hashable> {
         let count = rbush_result_count(result)
         guard count > 0 else { return [] }
         guard let data = rbush_result_data(result) else { throw RBushError("Missing spatial query buffer") }
+        let keys = storage.keys
         return try Set(UnsafeBufferPointer(start: data, count: count).map {
-            guard let key = storage.keys[$0.identity] else { throw RBushError("Unknown spatial query token") }
+            guard let key = keys[Int($0.identity)] else { throw RBushError("Unknown spatial query token") }
             return key
         })
     }
     public func containsCandidate(in bounds: BoundingBox, where predicate: (Key) -> Bool) throws -> Bool {
-        guard let handle = storage.handle, !storage.records.isEmpty else { return false }
+        guard let handle = storage.handle, !storage.tokens.isEmpty else { return false }
         return try withoutActuallyEscaping(predicate) { predicate in
             let keys = storage.keys
             var context = SpatialPredicateContext { token in
-                guard let key = keys[token] else { preconditionFailure("Unknown spatial predicate token") }
+                guard let key = keys[Int(token)] else { preconditionFailure("Unknown spatial predicate token") }
                 return predicate(key)
             }
             var found: Int32 = 0
@@ -143,7 +137,7 @@ public struct RBushSpatialIndex<Key: Hashable> {
     }
     public func regions(maxRegions: Int, maxNodeVisits: Int, minSpanRatio: Double) throws -> [BoundingBox] {
         guard minSpanRatio.isFinite && minSpanRatio >= 0 else { throw RBushError("minSpanRatio must be finite and nonnegative") }
-        guard maxRegions > 0, maxNodeVisits > 0, let handle = storage.handle, !storage.records.isEmpty else { return [] }
+        guard maxRegions > 0, maxNodeVisits > 0, let handle = storage.handle, !storage.tokens.isEmpty else { return [] }
         var regions = [rbush_box](repeating: rbush_box(), count: maxRegions), count = 0
         try regions.withUnsafeMutableBufferPointer {
             try spatialCheck(rbush_regions(handle, maxRegions, maxNodeVisits, minSpanRatio, $0.baseAddress, $0.count, &count, nil))
