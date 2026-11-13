@@ -172,6 +172,37 @@ final class RBushSpatialIndexTests: XCTestCase {
         XCTAssertTrue(try snapshot.candidates(in: box(400)).isEmpty)
         XCTAssertEqual(try index.candidates(in: box(400)), [4])
     }
+    func testIdentityIndexUpsertMoveRemoveAndCopyIndependence() throws {
+        func entry(_ identity: UInt64, _ x: Double) -> RBushIdentityEntry { .init(identity: identity, bounds: box(x)) }
+        var index = RBushIdentityIndex(maxEntries: 4)
+        XCTAssertNil(index.bounds)
+        XCTAssertEqual(index.count, 0)
+        XCTAssertFalse(try index.upsert([]))
+        XCTAssertTrue(try index.upsert((0..<50).map { entry(UInt64($0), Double($0) * 10) }))
+        XCTAssertEqual(index.count, 50)
+        XCTAssertEqual(index.bounds, .init(minX: 0, minY: 0, maxX: 491, maxY: 1))
+        let snapshot = index
+        // No-op batch on shared storage, then a move, a repeated new identity and an unchanged one.
+        XCTAssertFalse(try index.upsert([entry(3, 30), entry(4, 40)]))
+        XCTAssertTrue(try index.upsert([entry(3, 900), entry(3, 950), entry(77, 600), entry(77, 700), entry(5, 50)]))
+        XCTAssertEqual(index.count, 51)
+        XCTAssertEqual(try index.candidates(in: box(950)), [3])
+        XCTAssertEqual(try index.candidates(in: box(700)), [77])
+        XCTAssertTrue(try index.candidates(in: box(900, 0, 0.5)).isEmpty)
+        XCTAssertTrue(try index.candidates(in: box(600, 0, 0.5)).isEmpty)
+        XCTAssertEqual(try snapshot.candidates(in: box(30, 0, 0.5)), [3])
+        XCTAssertEqual(snapshot.count, 50)
+        XCTAssertTrue(try index.containsCandidate(in: box(700)) { $0 == 77 })
+        XCTAssertFalse(try index.containsCandidate(in: box(700)) { $0 == 3 })
+        XCTAssertTrue(try index.remove([3, 77, 3, 12345]))
+        XCTAssertFalse(try index.remove([3, 12345]))
+        XCTAssertEqual(index.count, 49)
+        XCTAssertTrue(try index.candidates(in: box(950)).isEmpty)
+        XCTAssertEqual(Set(try index.candidates(in: .init(minX: -1, minY: -1, maxX: 2000, maxY: 2))).count, 49)
+        index.reset()
+        XCTAssertEqual(index.count, 0)
+        XCTAssertEqual(snapshot.count, 50)
+    }
     func testNativeIdentityUpsertCountsChangesAndRemoves() {
         var tree: OpaquePointer?
         XCTAssertEqual(rbush_create(4, &tree), RBUSH_OK)

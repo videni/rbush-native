@@ -18,7 +18,7 @@ final class RBushWritePathCostTests: XCTestCase {
     }
     private func time(_ label: String, _ body: () throws -> Void) rethrows {
         var best = Double.infinity
-        for _ in 0..<5 {
+        for _ in 0..<40 {
             let started = DispatchTime.now().uptimeNanoseconds
             try body()
             best = min(best, Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000)
@@ -53,6 +53,16 @@ final class RBushWritePathCostTests: XCTestCase {
             }
             native.withUnsafeBufferPointer { _ = rbush_upsert_many(tree, $0.baseAddress, $0.count, nil) }
             rbush_destroy(tree)
+        }
+        let identityEntries = (0..<count).map { RBushIdentityEntry(identity: UInt64($0 + 1), bounds: boxes[$0]) }
+        let identityBatches = (0..<10).map { Array(identityEntries[($0 * count / 10)..<(($0 + 1) * count / 10)]) }
+        try time("swift-identity-upsert") {
+            var index = RBushIdentityIndex()
+            try index.upsert(identityEntries)
+        }
+        try time("swift-identity-upsert-10-batches") {
+            var index = RBushIdentityIndex()
+            for batch in identityBatches { try index.upsert(batch) }
         }
         time("c-abi-insert") {
             var tree: OpaquePointer?

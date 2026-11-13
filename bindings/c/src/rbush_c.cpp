@@ -335,6 +335,9 @@ rbush_status rbush_upsert_many(rbush_tree *tree, const rbush_item *values, size_
         if (changed) *changed = updates;
     });
 }
+rbush_status rbush_identity_count(const rbush_tree *tree, size_t *count) {
+    return guard([&] { require(tree && count, "tree and out_count are required"); *count = tree->identities.size(); });
+}
 rbush_status rbush_count_changes(const rbush_tree *tree, const rbush_item *values, size_t count, size_t *changes) {
     return guard([&] {
         require(tree && changes && (values || count == 0), "tree, item buffer and output are required");

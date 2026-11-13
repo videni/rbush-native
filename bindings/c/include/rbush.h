@@ -82,6 +82,8 @@ rbush_status rbush_clone(const rbush_tree *tree, rbush_tree **out_tree);
 rbush_status rbush_upsert_many(rbush_tree *tree, const rbush_item *items, size_t count, size_t *out_changed);
 rbush_status rbush_count_changes(const rbush_tree *tree, const rbush_item *items, size_t count, size_t *out_changes);
 rbush_status rbush_remove_identities(rbush_tree *tree, const uint64_t *identities, size_t count, size_t *out_removed);
+/* O(1) number of identities owned by a tree written only through the calls above. */
+rbush_status rbush_identity_count(const rbush_tree *tree, size_t *out_count);
 /* Predicate is synchronous and unretained. Nonzero stops immediately. Optional
    counters report actual visited nodes and tested item boxes, not result count. */
 typedef int (*rbush_predicate_fn)(uint64_t identity, void *context);
