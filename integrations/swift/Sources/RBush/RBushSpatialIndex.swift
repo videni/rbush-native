@@ -17,15 +17,26 @@ public struct RBushSpatialIndex<Key: Hashable> {
             result.tokens = tokens; result.keys = keys; result.freeTokens = freeTokens
             return result
         }
-        /// One hashed write for a new key; a known key keeps its identity.
-        func token(for key: Key) -> UInt64 {
-            let candidate = freeTokens.last ?? UInt64(keys.count)
-            if let existing = tokens.updateValue(candidate, forKey: key) {
-                tokens[key] = existing
-                return existing
+        /// One hashed write for a new key; a known key keeps its identity. The tables are
+        /// moved into locals for the loop so each entry does not pay class-property access.
+        func tokens(for entries: [(Key, BoundingBox)]) -> [RBushIdentityEntry] {
+            var tokens = self.tokens, keys = self.keys, freeTokens = self.freeTokens
+            self.tokens = [:]; self.keys = []; self.freeTokens = []
+            tokens.reserveCapacity(tokens.count + entries.count)
+            keys.reserveCapacity(keys.count + entries.count)
+            var native: [RBushIdentityEntry] = []; native.reserveCapacity(entries.count)
+            for (key, bounds) in entries {
+                let candidate = freeTokens.last ?? UInt64(keys.count)
+                if let existing = tokens.updateValue(candidate, forKey: key) {
+                    tokens[key] = existing
+                    native.append(.init(identity: existing, bounds: bounds))
+                    continue
+                }
+                if freeTokens.isEmpty { keys.append(key) } else { freeTokens.removeLast(); keys[Int(candidate)] = key }
+                native.append(.init(identity: candidate, bounds: bounds))
             }
-            if freeTokens.isEmpty { keys.append(key) } else { freeTokens.removeLast(); keys[Int(candidate)] = key }
-            return candidate
+            self.tokens = tokens; self.keys = keys; self.freeTokens = freeTokens
+            return native
         }
         func release(_ token: UInt64) { keys[Int(token)] = nil; freeTokens.append(token) }
     }
@@ -58,9 +69,7 @@ public struct RBushSpatialIndex<Key: Hashable> {
             guard try wouldChange(entries) else { return false }
             storage = storage.cloned()
         }
-        let storage = storage
-        var native: [RBushIdentityEntry] = []; native.reserveCapacity(entries.count)
-        for (key, bounds) in entries { native.append(.init(identity: storage.token(for: key), bounds: bounds)) }
+        let native = storage.tokens(for: entries)
         return try storage.core.upsert(native)
     }
     @discardableResult public mutating func remove(_ key: Key) throws -> Bool {
